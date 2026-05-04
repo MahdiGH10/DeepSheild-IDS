@@ -1,0 +1,78 @@
+substitutions:
+  _REGION: us-central1
+  _BACKEND_SERVICE: deepshield-backend
+  _FRONTEND_SERVICE: deepshield-frontend
+  _REPOSITORY: deepshield
+  _BACKEND_IMAGE: backend
+  _FRONTEND_IMAGE: frontend
+  _API_BASE_URL: ""
+  _ANALYST_API_KEY: ""
+  _BACKEND_ENV_VARS: ""
+  _FRONTEND_ENV_VARS: ""
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-backend
+    args:
+      - build
+      - -f
+      - deepshield_backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: build-frontend
+    args:
+      - build
+      - -f
+      - uii-main/Dockerfile
+      - --build-arg
+      - VITE_API_BASE=${_API_BASE_URL}
+      - --build-arg
+      - VITE_ANALYST_API_KEY=${_ANALYST_API_KEY}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-backend
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-frontend
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-backend
+    entrypoint: bash
+    args:
+      - -c
+      - >
+        gcloud run deploy ${_BACKEND_SERVICE}
+        --image ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+        --region ${_REGION}
+        --platform managed
+        --allow-unauthenticated
+        --set-env-vars "${_BACKEND_ENV_VARS}"
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-frontend
+    entrypoint: bash
+    args:
+      - -c
+      - >
+        gcloud run deploy ${_FRONTEND_SERVICE}
+        --image ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+        --region ${_REGION}
+        --platform managed
+        --allow-unauthenticated
+        --set-env-vars "${_FRONTEND_ENV_VARS}"
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
