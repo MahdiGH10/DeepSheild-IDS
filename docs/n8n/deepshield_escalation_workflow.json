@@ -1,0 +1,173 @@
+{
+  "name": "DeepShield Escalation Email Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "deepshield-report",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "WebhookIn",
+      "name": "Webhook In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const secret = 'replace_with_shared_secret';\n\nconst item = $input.first();\nconst bodyObj = item?.json?.body || {};\nconst headers = item?.json?.headers || {};\nconst token =\n  headers['x-ids-webhook-secret'] ||\n  headers['X-Ids-Webhook-Secret'] ||\n  '';\n\nconst valid = token && token === secret;\n\nreturn [\n  {\n    json: {\n      ok: valid,\n      reason: valid ? null : 'Invalid shared secret',\n      body: bodyObj,\n    },\n  },\n];"
+      },
+      "id": "ValidateSignature",
+      "name": "Validate Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "IfValid",
+      "name": "If Signature Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst b = item.body || {};\nconst out = { ...item, alert_id: b.report_payload?.alert?.id ?? null };\n\nif (!b.attachment_pdf_base64) {\n  throw new Error('Missing attachment_pdf_base64 in dispatch payload');\n}\n\nreturn [\n  {\n    json: out,\n    binary: {\n      incident_pdf: {\n        data: b.attachment_pdf_base64,\n        mimeType: 'application/pdf',\n        fileName: b.attachment_pdf_filename || `INC-${out.alert_id || 'n-a'}_incident_package.pdf`,\n      },\n    },\n  },\n];"
+      },
+      "id": "PrepareEmailAttachments",
+      "name": "Prepare Email Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [830, 120]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.DEEPSHIELD_FROM_EMAIL || $env.DEEPSHIELD_ANALYST_EMAIL || 'noreply@localhost'}}",
+        "toEmail": "={{$env.DEEPSHIELD_ANALYST_EMAIL || 'soc-analyst@example.com'}}",
+        "subject": "={{`[DeepShield] ${$json.body?.report_payload?.alert?.severity || 'Alert'} incident #${$json.body?.report_payload?.alert?.id || 'n/a'}`}}",
+        "emailFormat": "html",
+        "html": "={{$json.body?.rendered_content || '<p>No report content</p>'}}",
+        "options": {
+          "attachments": "incident_pdf"
+        }
+      },
+      "id": "SendEmail",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1090, 120],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_SMTP_CREDENTIAL_ID",
+          "name": "REPLACE_SMTP_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'delivered', message: 'email sent', alert_id: $('Prepare Email Attachments').first().json.alert_id ?? null }) }}"
+      },
+      "id": "RespondSuccess",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 120]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'rejected', message: $json.reason || 'signature validation failed' }) }}"
+      },
+      "id": "RespondInvalid",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Webhook In": {
+      "main": [
+        [
+          {
+            "node": "Validate Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Signature": {
+      "main": [
+        [
+          {
+            "node": "If Signature Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Signature Valid": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Attachments": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}
