@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+.venv/
+venv/
+deepshield_backend/instance/
+
+# Node
+node_modules/
+dist/
+.next/
+out/
+uii-main/.env
+
+# Secrets
+.env
+
+# Logs
+*.log
+
+# Local/export artifacts
+*.zip
+RapportDL1*/
+.vscode/
+.bolt/
+uii-main/README.md
