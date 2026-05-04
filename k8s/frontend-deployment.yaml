@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: us-central1-docker.pkg.dev/PROJECT_ID/deepshield/frontend:latest
+          image: us-central1-docker.pkg.dev/deepshield-495313/deepshield/frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

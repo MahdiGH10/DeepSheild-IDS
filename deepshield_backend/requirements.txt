@@ -2,7 +2,8 @@ Flask==3.0.3
 Flask-Cors==4.0.1
 Flask-SQLAlchemy==3.1.1
 python-dotenv==1.0.1
-numpy>=2.1.0
+numpy>=1.26.4,<2.0.0; python_version < "3.13"
+numpy>=2.1.0; python_version >= "3.13"
 requests==2.32.3
 fpdf2>=2.7.9
 joblib==1.4.2

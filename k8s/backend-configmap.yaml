@@ -13,7 +13,7 @@ data:
   IDS_CORS_ORIGINS: "*"
   OPENROUTER_MODEL: "openai/gpt-4o-mini"
   IDS_LLM_TIMEOUT_SECONDS: "30"
-  IDS_N8N_WEBHOOK_URL: "https://YOUR_PUBLIC_N8N_DOMAIN/webhook/deepshield-report"
+  IDS_N8N_WEBHOOK_URL: "http://localhost:5678/webhook/deepshield-report"
   IDS_N8N_MAX_RETRIES: "3"
   IDS_N8N_RETRY_BACKOFF_SECONDS: "2"
   IDS_N8N_TIMEOUT_SECONDS: "20"

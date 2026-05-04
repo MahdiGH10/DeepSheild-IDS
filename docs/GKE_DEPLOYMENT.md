@@ -29,7 +29,6 @@ flowchart LR
 | `k8s/backend-secret.example.yaml` | Secret template for API keys/webhook secrets |
 | `k8s/backend-deployment.yaml` | Backend Deployment + LoadBalancer Service |
 | `k8s/frontend-deployment.yaml` | Frontend Deployment + LoadBalancer Service |
-| `k8s/kustomization.yaml` | Kustomize entrypoint |
 
 ## 3. Prerequisites
 
