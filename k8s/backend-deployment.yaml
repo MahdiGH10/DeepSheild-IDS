@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepshield-backend
+  namespace: deepshield
+  labels:
+    app: deepshield-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deepshield-backend
+  template:
+    metadata:
+      labels:
+        app: deepshield-backend
+    spec:
+      containers:
+        - name: backend
+          image: us-central1-docker.pkg.dev/PROJECT_ID/deepshield/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: deepshield-backend-config
+            - secretRef:
+                name: deepshield-backend-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepshield-backend
+  namespace: deepshield
+spec:
+  type: LoadBalancer
+  selector:
+    app: deepshield-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

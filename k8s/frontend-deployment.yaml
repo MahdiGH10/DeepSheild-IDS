@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepshield-frontend
+  namespace: deepshield
+  labels:
+    app: deepshield-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deepshield-frontend
+  template:
+    metadata:
+      labels:
+        app: deepshield-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: us-central1-docker.pkg.dev/PROJECT_ID/deepshield/frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepshield-frontend
+  namespace: deepshield
+spec:
+  type: LoadBalancer
+  selector:
+    app: deepshield-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

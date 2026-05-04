@@ -27,3 +27,4 @@ RapportDL1*/
 .vscode/
 .bolt/
 uii-main/README.md
+k8s/backend-secret.yaml

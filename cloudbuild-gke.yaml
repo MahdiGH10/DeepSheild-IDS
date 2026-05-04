@@ -1,0 +1,84 @@
+substitutions:
+  _REGION: us-central1
+  _ZONE: us-central1-a
+  _CLUSTER: deepshield-gke
+  _REPOSITORY: deepshield
+  _BACKEND_IMAGE: backend
+  _FRONTEND_IMAGE: frontend
+  _API_BASE_URL: ""
+  _ANALYST_API_KEY: ""
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-backend
+    args:
+      - build
+      - -f
+      - deepshield_backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: build-frontend
+    args:
+      - build
+      - -f
+      - uii-main/Dockerfile
+      - --build-arg
+      - VITE_API_BASE=${_API_BASE_URL}
+      - --build-arg
+      - VITE_ANALYST_API_KEY=${_ANALYST_API_KEY}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-backend-sha
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-backend-latest
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:latest
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-frontend-sha
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-frontend-latest
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:latest
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy-to-gke
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud container clusters get-credentials ${_CLUSTER} --zone ${_ZONE}
+        sed -i "s/PROJECT_ID/$PROJECT_ID/g" k8s/backend-deployment.yaml
+        sed -i "s/PROJECT_ID/$PROJECT_ID/g" k8s/frontend-deployment.yaml
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/backend-configmap.yaml
+        kubectl apply -f k8s/backend-deployment.yaml
+        kubectl apply -f k8s/frontend-deployment.yaml
+        kubectl set image deployment/deepshield-backend backend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA -n deepshield
+        kubectl set image deployment/deepshield-frontend frontend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA -n deepshield
+        kubectl rollout status deployment/deepshield-backend -n deepshield --timeout=300s
+        kubectl rollout status deployment/deepshield-frontend -n deepshield --timeout=300s
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA

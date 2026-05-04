@@ -306,18 +306,23 @@ Before using DeepShield for a real client, add:
 
 Google Cloud deployment notes are in:
 
-```text
-docs/GCP_DEPLOYMENT.md
-```
+| Guide | Purpose |
+| --- | --- |
+| `docs/GCP_DEPLOYMENT.md` | Cloud Run deployment guide |
+| `docs/GKE_DEPLOYMENT.md` | Google Kubernetes Engine deployment guide |
 
 The repository includes:
 
 | File | Purpose |
 | --- | --- |
-| `cloudbuild.yaml` | Cloud Build pipeline |
+| `cloudbuild.yaml` | Cloud Build pipeline for Cloud Run |
+| `cloudbuild-gke.yaml` | Cloud Build pipeline for GKE image rollout |
 | `deepshield_backend/Dockerfile` | Backend container |
 | `uii-main/Dockerfile` | Frontend container |
 | `uii-main/nginx.conf.template` | Runtime API proxy configuration |
+| `k8s/` | Kubernetes manifests for GKE deployment |
+
+For the current GKE setup, no public domain is required. The frontend and backend are exposed through Kubernetes `LoadBalancer` services and receive external IP addresses.
 
 ## Git Hygiene
 
