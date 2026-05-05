@@ -5,6 +5,7 @@ substitutions:
   _REPOSITORY: deepshield
   _BACKEND_IMAGE: backend
   _FRONTEND_IMAGE: frontend
+  _IMAGE_TAG: latest
   _API_BASE_URL: ""
   _ANALYST_API_KEY: ""
 
@@ -16,9 +17,9 @@ steps:
       - -f
       - deepshield_backend/Dockerfile
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
-      - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:${_IMAGE_TAG}
       - .
 
   - name: gcr.io/cloud-builders/docker
@@ -32,16 +33,16 @@ steps:
       - --build-arg
       - VITE_ANALYST_API_KEY=${_ANALYST_API_KEY}
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
-      - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:${_IMAGE_TAG}
       - .
 
   - name: gcr.io/cloud-builders/docker
-    id: push-backend-sha
+    id: push-backend-tag
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:${_IMAGE_TAG}
 
   - name: gcr.io/cloud-builders/docker
     id: push-backend-latest
@@ -50,10 +51,10 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:latest
 
   - name: gcr.io/cloud-builders/docker
-    id: push-frontend-sha
+    id: push-frontend-tag
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:${_IMAGE_TAG}
 
   - name: gcr.io/cloud-builders/docker
     id: push-frontend-latest
@@ -74,11 +75,12 @@ steps:
         kubectl apply -f k8s/backend-configmap.yaml
         kubectl apply -f k8s/backend-deployment.yaml
         kubectl apply -f k8s/frontend-deployment.yaml
-        kubectl set image deployment/deepshield-backend backend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA -n deepshield
-        kubectl set image deployment/deepshield-frontend frontend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA -n deepshield
+        kubectl set image deployment/deepshield-backend backend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:${_IMAGE_TAG} -n deepshield
+        kubectl set image deployment/deepshield-frontend frontend=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:${_IMAGE_TAG} -n deepshield
+        kubectl rollout restart deployment/deepshield-frontend -n deepshield
         kubectl rollout status deployment/deepshield-backend -n deepshield --timeout=300s
         kubectl rollout status deployment/deepshield-frontend -n deepshield --timeout=300s
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$COMMIT_SHA
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:${_IMAGE_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_FRONTEND_IMAGE}:${_IMAGE_TAG}

@@ -89,7 +89,11 @@ export type LiveDispatchResult = {
   reason?: string | null;
 };
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:5000').trim().replace(/\/+$/, '');
+// In production the frontend is served by nginx which proxies API paths to the internal
+// backend service. Use a blank API_BASE to make requests relative (e.g. /alerts) so the
+// browser calls the same host and nginx will proxy to the cluster-internal service name.
+// For local development set VITE_API_BASE in an .env file to e.g. http://127.0.0.1:5000
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').trim().replace(/\/+$/, '');
 const ANALYST_API_KEY = (import.meta.env.VITE_ANALYST_API_KEY ?? '').trim();
 
 function endpoint(path: string): string {

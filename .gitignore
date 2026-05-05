@@ -23,7 +23,23 @@ uii-main/.env
 
 # Local/export artifacts
 *.zip
+*.7z
+*.rar
+*.ipynb
+*.bat
+*.pdf
 RapportDL1*/
+RapportDeepLearningv1/
+LaTeX Memoire Template - IT Business School 2026 (1)/
+REPORT_*.md
+DEMO_CHECKLIST.md
+docs/*.md
+docs/n8n/*.md
+clean_database.py
+clean_remote_database.py
+generate_*.py
+embleme.jpg
+scripts/reset-gke-backend-db.cloudbuild.yaml
 .vscode/
 .bolt/
 uii-main/README.md

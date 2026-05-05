@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TelemetryPoint } from '../types';
 
 interface Props {
@@ -15,9 +15,8 @@ const CW = W - PAD_L - PAD_R;
 const CH = H - PAD_T - PAD_B;
 const DISPLAY_POINTS = 48;
 const MAX_RENDER_POINTS = 96;
-const UPDATE_INTERVAL = 700;
-const MAX_HISTORY_POINTS = Math.ceil((60 * 60 * 1000) / UPDATE_INTERVAL) + 10;
 const CONFIDENCE_ALERT = 70;
+const BASELINE_STEP_MS = 700;
 
 type RangeKey = '1m' | '5m' | '1h' | 'live';
 
@@ -25,7 +24,7 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; seconds: number }> = 
   { key: '1m', label: '1m', seconds: 60 },
   { key: '5m', label: '5m', seconds: 5 * 60 },
   { key: '1h', label: '1h', seconds: 60 * 60 },
-  { key: 'live', label: 'Live', seconds: 30 },
+  { key: 'live', label: 'Live', seconds: 120 },
 ];
 
 type SlotPoint = {
@@ -50,6 +49,8 @@ function xAt(index: number, total = DISPLAY_POINTS) {
 
 function smoothPath(points: Array<{ x: number; y: number }>) {
   if (points.length < 2) return '';
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
   let d = `M ${points[0].x} ${points[0].y}`;
 
   for (let i = 1; i < points.length - 1; i += 1) {
@@ -85,105 +86,97 @@ function samplePoints(points: SlotPoint[], maxPoints = MAX_RENDER_POINTS) {
   return sampled;
 }
 
-function seededPoints(input: TelemetryPoint[]): SlotPoint[] {
-  const source = input.slice(-DISPLAY_POINTS);
-  const now = Date.now();
-  const missing = Math.max(0, DISPLAY_POINTS - source.length);
-  const seed: SlotPoint[] = [];
+function baselinePoint(index: number, total = DISPLAY_POINTS, now = Date.now()): SlotPoint {
+  const phase = now / BASELINE_STEP_MS;
+  const wave = Math.sin((index + phase) / 4) * 5 + Math.cos((index + phase) / 7) * 3;
+  const confidence = clamp(56 + wave, 42, 66);
 
-  for (let i = 0; i < missing; i += 1) {
-    const wave = Math.sin(i / 4) * 6;
-    const drift = Math.cos(i / 7) * 3;
-    const confidence = clamp(54 + wave + drift, 35, 72);
-    seed.push({
-      t: now - (DISPLAY_POINTS - i) * UPDATE_INTERVAL,
-      confidence,
-      intensity: confidence / 100,
-      isAttack: false,
-    });
-  }
-
-  return [
-    ...seed,
-    ...source.map(point => ({
-      t: point.t || now,
-      confidence: clamp(point.confidence, 0, 100),
-      intensity: clamp(point.intensity || point.confidence / 100, 0, 1),
-      isAttack: point.isAttack,
-    })),
-  ].slice(-DISPLAY_POINTS);
-}
-
-function nextSyntheticPoint(previous: SlotPoint): SlotPoint {
-  const wave = Math.sin(Date.now() / 2600) * 5;
-  const noise = (Math.random() - 0.5) * 5;
-  const confidence = clamp(previous.confidence * 0.78 + (58 + wave + noise) * 0.22, 35, 76);
   return {
-    t: Date.now(),
+    t: now - (total - index - 1) * BASELINE_STEP_MS,
     confidence,
     intensity: confidence / 100,
     isAttack: false,
   };
 }
 
+function baselineSeries(total = DISPLAY_POINTS, now = Date.now()): SlotPoint[] {
+  return Array.from({ length: total }, (_, index) => baselinePoint(index, total, now));
+}
+
+function toSeries(input: TelemetryPoint[], now = Date.now()): SlotPoint[] {
+  const slots = baselineSeries(DISPLAY_POINTS, now);
+  const start = slots[0]?.t ?? now;
+  const end = slots[slots.length - 1]?.t ?? now;
+  const slotSpan = Math.max(end - start, BASELINE_STEP_MS);
+  const slotStep = slotSpan / Math.max(slots.length - 1, 1);
+  const livePoints = input
+    .slice(-MAX_RENDER_POINTS)
+    .map(point => ({
+      t: point.t || now,
+      confidence: clamp(point.confidence, 0, 100),
+      intensity: clamp(point.intensity || point.confidence / 100, 0, 1),
+      isAttack: point.isAttack,
+    }))
+    .filter(point => point.t >= start - slotStep && point.t <= end + slotStep);
+
+  livePoints.forEach(point => {
+    const nearestIndex = clamp(Math.round((point.t - start) / slotStep), 0, slots.length - 1);
+    const indexes = point.isAttack
+      ? [nearestIndex - 1, nearestIndex, nearestIndex + 1]
+      : [nearestIndex];
+
+    indexes.forEach(index => {
+      if (index < 0 || index >= slots.length) return;
+      const existing = slots[index];
+      const confidence = point.isAttack
+        ? Math.max(existing.confidence, point.confidence)
+        : point.confidence;
+
+      slots[index] = {
+        t: existing.t,
+        confidence,
+        intensity: point.intensity,
+        isAttack: existing.isAttack || point.isAttack,
+      };
+    });
+  });
+
+  return slots;
+}
+
 export default function TelemetryChart({ data }: Props) {
-  const [series, setSeries] = useState<SlotPoint[]>(() => seededPoints(data));
+  const [clock, setClock] = useState(() => Date.now());
+  const [series, setSeries] = useState<SlotPoint[]>(() => toSeries(data));
   const [selectedRange, setSelectedRange] = useState<RangeKey>('1m');
-
-  const seriesRef = useRef(series);
-  const lastBackendTsRef = useRef(0);
-  const lastUpdateRef = useRef(0);
-
-  useEffect(() => {
-    if (!data.length) return;
-
-    const incoming = data
-      .map(point => ({
-        t: point.t || Date.now(),
-        confidence: clamp(point.confidence, 0, 100),
-        intensity: clamp(point.intensity || point.confidence / 100, 0, 1),
-        isAttack: point.isAttack,
-      }))
-      .filter(point => point.t > lastBackendTsRef.current)
-      .sort((a, b) => a.t - b.t);
-
-    if (!incoming.length) return;
-
-    lastBackendTsRef.current = incoming[incoming.length - 1].t;
-    const next = [...seriesRef.current, ...incoming].slice(-MAX_HISTORY_POINTS);
-    seriesRef.current = next;
-    setSeries(next);
-  }, [data]);
 
   useEffect(() => {
     let frame = 0;
+    let lastUpdate = 0;
 
-    function animate(timestamp: number) {
-      if (timestamp - lastUpdateRef.current >= UPDATE_INTERVAL) {
-        lastUpdateRef.current = timestamp;
-
-        const current = seriesRef.current;
-        const nextPoint = nextSyntheticPoint(current[current.length - 1]);
-        const nextSeries = [...current, nextPoint].slice(-MAX_HISTORY_POINTS);
-        seriesRef.current = nextSeries;
-        setSeries(nextSeries);
+    const animate = (timestamp: number) => {
+      if (timestamp - lastUpdate >= BASELINE_STEP_MS) {
+        lastUpdate = timestamp;
+        setClock(Date.now());
       }
-
       frame = requestAnimationFrame(animate);
-    }
+    };
 
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    setSeries(toSeries(data, clock));
+  }, [clock, data]);
+
   const latest = series[series.length - 1];
   const selectedWindow = RANGE_OPTIONS.find(option => option.key === selectedRange) ?? RANGE_OPTIONS[0];
   const visibleSeries = useMemo(() => {
-    const cutoff = Date.now() - selectedWindow.seconds * 1000;
+    const cutoff = clock - selectedWindow.seconds * 1000;
     const inWindow = series.filter(point => point.t >= cutoff);
     const source = inWindow.length ? inWindow : series.slice(-DISPLAY_POINTS);
     return samplePoints(source);
-  }, [selectedWindow.seconds, series]);
+  }, [clock, selectedWindow.seconds, series]);
 
   const currentConf = Math.round(latest?.confidence ?? 0);
 
@@ -213,51 +206,48 @@ export default function TelemetryChart({ data }: Props) {
     [visibleSeries]
   );
 
-  const linePath = useMemo(
-    () => smoothPath(chartPoints.map(({ x, y }) => ({ x, y }))),
-    [chartPoints]
-  );
-
-  const areaPath = useMemo(() => {
-    if (!chartPoints.length) return '';
+  const signalPaths = useMemo(() => {
     const bottom = PAD_T + CH;
-    return `${linePath} L ${chartPoints[chartPoints.length - 1].x} ${bottom} L ${chartPoints[0].x} ${bottom} Z`;
-  }, [chartPoints, linePath]);
+    if (chartPoints.length < 2) return [];
 
-  const attackSegments = useMemo(() => {
-    const segments: Array<Array<{ x: number; y: number }>> = [];
-    let current: Array<{ x: number; y: number }> = [];
+    const segments: Array<{
+      isAttack: boolean;
+      points: Array<{ x: number; y: number }>;
+    }> = [];
+    let current = [
+      { x: chartPoints[0].x, y: chartPoints[0].y },
+      { x: chartPoints[1].x, y: chartPoints[1].y },
+    ];
+    let currentIsAttack = chartPoints[1].point.isAttack;
 
-    chartPoints.forEach((point, index) => {
-      if (point.point.isAttack) {
-        const previous = chartPoints[index - 1];
-        if (!current.length && previous) {
-          current.push({ x: previous.x, y: previous.y });
-        }
+    for (let index = 2; index < chartPoints.length; index += 1) {
+      const point = chartPoints[index];
+      const previous = chartPoints[index - 1];
+      const nextIsAttack = point.point.isAttack;
+
+      if (nextIsAttack !== currentIsAttack) {
+        segments.push({ isAttack: currentIsAttack, points: current });
+        current = [
+          { x: previous.x, y: previous.y },
+          { x: point.x, y: point.y },
+        ];
+        currentIsAttack = nextIsAttack;
+      } else {
         current.push({ x: point.x, y: point.y });
-      } else if (current.length) {
-        current.push({ x: point.x, y: point.y });
-        segments.push(current);
-        current = [];
       }
+    }
+
+    segments.push({ isAttack: currentIsAttack, points: current });
+
+    return segments.map(segment => {
+      const line = smoothPath(segment.points);
+      return {
+        isAttack: segment.isAttack,
+        line,
+        surface: `${line} L ${segment.points[segment.points.length - 1].x} ${bottom} L ${segment.points[0].x} ${bottom} Z`,
+      };
     });
-
-    if (current.length) segments.push(current);
-    return segments;
   }, [chartPoints]);
-
-  const attackPaths = useMemo(() => {
-    const bottom = PAD_T + CH;
-    return attackSegments
-      .filter(points => points.length > 1)
-      .map(points => {
-        const line = smoothPath(points);
-        return {
-          line,
-          surface: `${line} L ${points[points.length - 1].x} ${bottom} L ${points[0].x} ${bottom} Z`,
-        };
-      });
-  }, [attackSegments]);
 
   const xLabels = [
     { offset: selectedWindow.seconds, x: PAD_L },
@@ -266,20 +256,6 @@ export default function TelemetryChart({ data }: Props) {
     { offset: Math.round(selectedWindow.seconds * 0.25), x: PAD_L + CW * 0.75 },
     { offset: 0, x: PAD_L + CW },
   ];
-
-  const noData = data.length === 0 && series.every(point => !point.isAttack);
-
-  if (noData && series.length === 0) {
-    return (
-      <div className="bg-[#080d14] border-b border-slate-800 px-5 py-4">
-        <div className="bg-transparent border border-slate-800/70 rounded px-4 py-6 text-center">
-          <p className="text-[11px] text-slate-500">
-            No telemetry points received yet. Start backend traffic simulation to populate the live signal.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-[#080d14] border-b border-slate-800 px-5 py-4">
@@ -384,41 +360,23 @@ export default function TelemetryChart({ data }: Props) {
                 </g>
               ))}
 
-              <path d={areaPath} fill="url(#area-fill)" />
-              {attackPaths.map((path, index) => (
+              {signalPaths.map((path, index) => (
                 <path
-                  key={`attack-surface-${index}`}
+                  key={`signal-surface-${index}`}
                   d={path.surface}
-                  fill="url(#attack-surface-fill)"
+                  fill={path.isAttack ? 'url(#attack-surface-fill)' : 'url(#area-fill)'}
                 />
               ))}
-              <path
-                d={linePath}
-                fill="none"
-                stroke="#00c8ff"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {attackPaths.map((path, index) => (
-                <g key={`attack-line-${index}`}>
-                  <path
-                    d={path.line}
-                    fill="none"
-                    stroke="rgba(255,51,102,0.18)"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d={path.line}
-                    fill="none"
-                    stroke="#ff3366"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </g>
+              {signalPaths.map((path, index) => (
+                <path
+                  key={`signal-line-${index}`}
+                  d={path.line}
+                  fill="none"
+                  stroke={path.isAttack ? '#ff3366' : '#00c8ff'}
+                  strokeWidth={path.isAttack ? '2' : '1.5'}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               ))}
 
               {xLabels.map(label => (

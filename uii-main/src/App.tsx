@@ -128,10 +128,19 @@ function groupAlertsByType(alerts: Alert[]): GroupedAlert[] {
 
 function toTelemetry(points: LiveRealtimeResponse['points']): TelemetryPoint[] {
   if (!points.length) return [];
+  const parsedTimes = points.map(point => new Date(point.ts).getTime()).filter(Number.isFinite);
+  const latestBackendTime = parsedTimes.length ? Math.max(...parsedTimes) : Date.now();
+  const clockOffset = Date.now() - latestBackendTime;
+
   return points.map((point, index) => {
     const confidencePercent = confidenceToPercent(point.confidence);
+    const backendTime = new Date(point.ts).getTime();
+    const normalizedTime = Number.isFinite(backendTime)
+      ? backendTime + clockOffset
+      : Date.now() - (points.length - index - 1) * 700;
+
     return {
-      t: new Date(point.ts).getTime() || Date.now() + index * 2000,
+      t: normalizedTime,
       confidence: confidencePercent,
       intensity: Math.max(0.08, Math.min(1, confidencePercent / 100)),
       isAttack: !isBaselineLabel(point.attack_type),
@@ -245,7 +254,7 @@ export default function App() {
           fetchLiveAlerts(80),
           // Use a smaller realtime window during benign-only demo so the chart reflects
           // the most recent simulator traffic (reduce noisy historical attack events).
-          fetchLiveRealtime(30),
+          fetchLiveRealtime(120),
           fetchLiveOpsPosture(),
         ]);
 
