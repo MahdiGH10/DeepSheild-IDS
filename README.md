@@ -46,6 +46,24 @@ flowchart LR
   N8N --> Email
 ```
 
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Detection | TensorFlow/Keras deep-learning classifier, scikit-learn scaler and label encoder |
+| Backend | Python, Flask, SQLAlchemy (SQLite for the demo) |
+| Dashboard | React, TypeScript, Vite |
+| Automation | n8n Cloud (incident escalation and analyst email) |
+| Delivery | Docker, Google Cloud Build, Artifact Registry, GKE (Kubernetes) |
+
+## Design Decisions
+
+- **Model behind a feature contract.** `feature_names.pkl` + `scaler.pkl` + `label_encoder.pkl` ship with the model so inference always applies the exact training-time preprocessing.
+- **Rule layer on top of the model.** `severity_rules.py` maps model output to severity, status and response actions, so analyst-facing logic can change without retraining.
+- **Unknown signatures are escalated, not dropped.** Attack types labelled unknown, zero-day or unidentified are treated as Critical until an analyst classifies them, so a novel attack cannot silently fall through.
+- **Detection and response are decoupled.** The backend only emits an incident payload; n8n owns notification, so SOAR steps (tickets, IP enrichment) can be added without touching the API.
+- **Config via environment and Kubernetes Secrets.** No credentials in the repo; `.env.example` and `k8s/backend-secret.example.yaml` document what is needed.
+
 ## Repository Structure
 
 | Path | Purpose |
@@ -175,6 +193,7 @@ Create the namespace and secret:
 
 ```powershell
 kubectl apply -f k8s/namespace.yaml
+cp k8s/backend-secret.example.yaml k8s/backend-secret.yaml   # then fill in real values (file is git-ignored)
 kubectl apply -f k8s/backend-secret.yaml
 ```
 
